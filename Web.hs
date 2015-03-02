@@ -3,6 +3,7 @@ module Main where
 
 import Blaze.ByteString.Builder.Char.Utf8 (fromString)
 import Control.Monad (join)
+import Control.Monad.Identity (Identity(..))
 import Data.Default (def)
 import Network.HTTP.Types
 import Network.Wai
@@ -13,6 +14,8 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.Text as T
 import qualified KML as K
 
+url = "..."
+
 main :: IO ()
 main = do
     [port] <- getArgs
@@ -20,17 +23,24 @@ main = do
 
 app :: Application
 app req respond = case (requestMethod req, pathInfo req) of
-    ("GET", ["segments.kml"]) -> segmentsKml (queryString req) >>= respond
+    ("GET", []) -> respond $ responseFile status200 [("Content-Type", "text/html")] "index.html" Nothing
+    ("GET", ["segments.kml"]) -> respond $ segmentsKml (queryString req)
+    ("GET", ["segmentsView.kml"]) -> segmentsViewKml (queryString req) >>= respond
+    ("GET", _) -> respond $ responseNotFound
+    (_, _) -> respond $ responseNotImplemented
 
-segmentsKml q = do
-    segs <- exploreBbox token bbox
-    return $ responseBuilder status200 headers $ fromString $ segsToKML segs
+segmentsKml =
+    getParams ["token"] $ \[token] ->
+        responseKml $ K.netLinkKML "Strava Segments" href (format token)
     where
-        Just [south, west, north, east, token] = join $ fmap sequence $ sequence
-            [ lookup p q | p <- ["south", "west", "north", "east", "token"] ]
+        href = url ++ "segmentsView.kml"
+        format t = "south=[bboxSouth]&west=[bboxWest]&north=[bboxNorth]&east=[bboxEast]&token=" ++ B.unpack t
+
+segmentsViewKml =
+    getParamsM ["south", "west", "north", "east", "token"] $ \[s, w, n, e, token] ->
+        fmap (responseKml . segsToKml) $ exploreBbox token (rd s, rd w, rd n, rd e)
+    where
         rd = read . B.unpack
-        bbox = (rd south, rd west, rd north, rd east) :: (Double, Double, Double, Double)
-        headers = [("Content-Type", "application/vnd.google-earth.kml+xml")]
 
 exploreBbox token bbox = do
     client <- buildClient $ B.unpack token
@@ -42,4 +52,34 @@ segToTrack seg = K.Track
     , K.desc = ""
     , K.coord = unPolyline $ get points seg }
 
-segsToKML segs = K.tracksToKML $ map segToTrack $ get segments segs
+segsToKml segs = K.tracksToKML $ map segToTrack $ get segments segs
+
+responseKml = responseBuilder status200 headers . fromString
+    where
+        headers = [("Content-Type", "application/vnd.google-earth.kml+xml")]
+
+responseBadReq s = responseBuilder status400 headers $ fromString s
+    where
+        headers = [("Content-Type", "text/plain")]
+
+responseNotFound = responseBuilder status404 headers $ fromString "not found"
+    where
+        headers = [("Content-Type", "text/plain")]
+
+responseNotImplemented = responseBuilder status501 headers $ fromString "not implemented"
+    where
+        headers = [("Content-Type", "text/plain")]
+
+getParams :: [B.ByteString] -> ([B.ByteString] -> Response) -> Query -> Response
+getParams ps c q = runIdentity $ getParamsM ps (Identity . c) q
+
+getParamsM :: (Monad m) => [B.ByteString] -> ([B.ByteString] -> m Response) -> Query -> m Response
+getParamsM ps c q =
+    case sequence $ map getPar ps of
+        Right ps' -> c ps'
+        Left err -> return $ responseBadReq err
+    where
+        getPar p =
+            case lookup p q of
+                Just (Just v) -> Right v
+                _ -> Left $ "missing param: " ++ B.unpack p
