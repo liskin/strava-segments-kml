@@ -5,6 +5,7 @@ import Blaze.ByteString.Builder.Char.Utf8 (fromString)
 import Control.Monad (join)
 import Control.Monad.Identity (Identity(..))
 import Data.Default (def)
+import Data.Monoid (mempty)
 import Network.HTTP.Types
 import Network.Wai
 import Network.Wai.Handler.Warp
@@ -14,27 +15,35 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.Text as T
 import qualified KML as K
 
-url = "..."
+import Config
 
 main :: IO ()
 main = do
     [port] <- getArgs
-    run (read port) app
+    run (read port) $ logger app
 
 app :: Application
 app req respond = case (requestMethod req, pathInfo req) of
     ("GET", []) -> respond $ responseFile status200 [("Content-Type", "text/html")] "index.html" Nothing
-    ("GET", ["segments.kml"]) -> respond $ segmentsKml (queryString req)
+    ("GET", ["segments.kml"]) -> segmentsKmlAuth (queryString req) >>= respond
     ("GET", ["segmentsView.kml"]) -> segmentsViewKml (queryString req) >>= respond
     ("GET", _) -> respond $ responseNotFound
     (_, _) -> respond $ responseNotImplemented
 
-segmentsKml =
-    getParams ["token"] $ \[token] ->
-        responseKml $ K.netLinkKML "Strava Segments" href (format token)
+segmentsKmlAuth q =
+    case lookup "code" q of
+        Nothing ->
+            return $ responseFound $ B.pack $ buildAuthorizeUrl clientId (url ++ "segments.kml") def
+        Just (Just code) -> do
+            res <- exchangeToken clientId clientSecret (B.unpack code)
+            case res of
+                Left err -> return $ responseBadReq err
+                Right res' -> return $ segmentsKml $ T.unpack $ get accessToken res'
+
+segmentsKml token = responseKml $ K.netLinkKML "Strava Segments" href format
     where
         href = url ++ "segmentsView.kml"
-        format t = "south=[bboxSouth]&west=[bboxWest]&north=[bboxNorth]&east=[bboxEast]&token=" ++ B.unpack t
+        format = "south=[bboxSouth]&west=[bboxWest]&north=[bboxNorth]&east=[bboxEast]&token=" ++ token
 
 segmentsViewKml =
     getParamsM ["south", "west", "north", "east", "token"] $ \[s, w, n, e, token] ->
@@ -69,6 +78,10 @@ responseNotFound = responseBuilder status404 headers $ fromString "not found"
 responseNotImplemented = responseBuilder status501 headers $ fromString "not implemented"
     where
         headers = [("Content-Type", "text/plain")]
+
+responseFound url = responseBuilder status302 headers mempty
+    where
+        headers = [("Content-Type", "text/plain"), ("Location", url)]
 
 getParams :: [B.ByteString] -> ([B.ByteString] -> Response) -> Query -> Response
 getParams ps c q = runIdentity $ getParamsM ps (Identity . c) q
