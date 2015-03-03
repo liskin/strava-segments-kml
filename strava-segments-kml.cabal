@@ -18,6 +18,7 @@ executable strava-segments-kml
                        blaze-builder,
                        bytestring,
                        data-default,
+                       fast-logger,
                        http-types,
                        lrucache == 1.*,
                        mtl == 2.*,

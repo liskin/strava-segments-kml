@@ -6,3 +6,16 @@ url = "http://localhost:8080/"
 clientId = 12345
 clientSecret = "..."
 logger = logStdoutDev
+
+{-
+-- in production this is more useful:
+
+import Data.Default
+import Network.Wai.Middleware.RequestLogger
+import System.Log.FastLogger
+import System.IO.Unsafe
+
+logger = unsafePerformIO $ do
+	set <- newStdoutLoggerSet 0
+	mkRequestLogger def{ outputFormat = Apache FromFallback, destination = Logger set }
+-}
