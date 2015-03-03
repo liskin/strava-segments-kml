@@ -12,6 +12,7 @@ import Network.Wai.Handler.Warp
 import Strive hiding (map)
 import System.Environment (getArgs)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.Cache.LRU.IO as C
 import qualified Data.Text as T
 import qualified KML as K
 
@@ -20,13 +21,13 @@ import Config
 main :: IO ()
 main = do
     [port] <- getArgs
-    run (read port) $ logger app
+    stravaLru <- C.newAtomicLRU (Just 100)
+    run (read port) $ logger $ app stravaLru
 
-app :: Application
-app req respond = case (requestMethod req, pathInfo req) of
+app stravaLru req respond = case (requestMethod req, pathInfo req) of
     ("GET", []) -> respond $ responseFile status200 [("Content-Type", "text/html")] "index.html" Nothing
     ("GET", ["segments.kml"]) -> oAuth def (url ++ "segments.kml") segmentsKml (queryString req) >>= respond
-    ("GET", ["segmentsView.kml"]) -> segmentsViewKml (queryString req) >>= respond
+    ("GET", ["segmentsView.kml"]) -> segmentsViewKml stravaLru (queryString req) >>= respond
     ("GET", _) -> respond $ responseNotFound
     (_, _) -> respond $ responseNotImplemented
 
@@ -45,16 +46,25 @@ segmentsKml token = responseKml $ K.netLinkKML "Strava Segments" href format
         href = url ++ "segmentsView.kml"
         format = "south=[bboxSouth]&west=[bboxWest]&north=[bboxNorth]&east=[bboxEast]&token=" ++ token
 
-segmentsViewKml =
+segmentsViewKml stravaLru =
     getParamsM ["south", "west", "north", "east", "token"] $ \[s, w, n, e, token] ->
-        fmap (responseKml . segsToKml) $ exploreBbox token (rd s, rd w, rd n, rd e)
+        fmap (responseKml . segsToKml) $ exploreBbox stravaLru (B.unpack token) (rd s, rd w, rd n, rd e)
     where
         rd = read . B.unpack
 
-exploreBbox token bbox = do
-    client <- buildClient $ B.unpack token
+exploreBbox stravaLru token bbox = do
+    client <- getClient stravaLru token
     Right segs <- exploreSegments client bbox def
     return segs
+
+getClient stravaLru token = do
+    v <- C.lookup token stravaLru
+    case v of
+        Just client -> return client
+        Nothing -> do
+            client <- buildClient token
+            C.insert token client stravaLru
+            return client
 
 segToTrack seg = K.Track
     { K.name = T.unpack $ get name seg

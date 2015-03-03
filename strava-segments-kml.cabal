@@ -19,6 +19,7 @@ executable strava-segments-kml
                        bytestring,
                        data-default,
                        http-types,
+                       lrucache == 1.*,
                        mtl == 2.*,
                        strive,
                        text,
