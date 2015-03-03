@@ -25,20 +25,20 @@ main = do
 app :: Application
 app req respond = case (requestMethod req, pathInfo req) of
     ("GET", []) -> respond $ responseFile status200 [("Content-Type", "text/html")] "index.html" Nothing
-    ("GET", ["segments.kml"]) -> segmentsKmlAuth (queryString req) >>= respond
+    ("GET", ["segments.kml"]) -> oAuth def (url ++ "segments.kml") segmentsKml (queryString req) >>= respond
     ("GET", ["segmentsView.kml"]) -> segmentsViewKml (queryString req) >>= respond
     ("GET", _) -> respond $ responseNotFound
     (_, _) -> respond $ responseNotImplemented
 
-segmentsKmlAuth q =
+oAuth opts pageUrl f q =
     case lookup "code" q of
         Nothing ->
-            return $ responseFound $ B.pack $ buildAuthorizeUrl clientId (url ++ "segments.kml") def
+            return $ responseFound $ B.pack $ buildAuthorizeUrl clientId pageUrl opts
         Just (Just code) -> do
             res <- exchangeToken clientId clientSecret (B.unpack code)
             case res of
                 Left err -> return $ responseBadReq err
-                Right res' -> return $ segmentsKml $ T.unpack $ get accessToken res'
+                Right res' -> return $ f $ T.unpack $ get accessToken res'
 
 segmentsKml token = responseKml $ K.netLinkKML "Strava Segments" href format
     where
