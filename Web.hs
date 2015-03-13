@@ -3,7 +3,6 @@
 module Main where
 
 import Blaze.ByteString.Builder.Char.Utf8 (fromString)
-import Control.Monad.Identity (Identity(..))
 import Data.Default (def)
 import Data.Monoid (mempty)
 import Network.HTTP.Types
@@ -113,9 +112,6 @@ responseNotImplemented = responseBuilder status501 headers $ fromString "not imp
 responseFound uri = responseBuilder status302 headers mempty
     where
         headers = [("Content-Type", "text/plain"), ("Location", uri)]
-
-getParams :: [B.ByteString] -> ([B.ByteString] -> Response) -> Query -> Response
-getParams ps c q = runIdentity $ getParamsM ps (Identity . c) q
 
 getParamsM :: (Monad m) => [B.ByteString] -> ([B.ByteString] -> m Response) -> Query -> m Response
 getParamsM ps c q =
