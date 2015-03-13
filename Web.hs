@@ -9,12 +9,14 @@ import Data.Monoid (mempty)
 import Network.HTTP.Types
 import Network.Wai
 import Network.Wai.Handler.Warp
+import Numeric
 import Strive hiding (map)
 import System.Environment (getArgs)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Cache.LRU.IO as C
 import qualified Data.Text as T
 import qualified KML as K
+import qualified Text.Html as H
 
 import Config
 
@@ -68,10 +70,27 @@ getClient stravaLru token = do
             C.insert token client stravaLru
             return client
 
-segToTrack seg = K.Track
-    { K.name = T.unpack $ get name seg
-    , K.desc = ""
-    , K.coord = unPolyline $ get points seg }
+segToTrack seg =
+    K.Track
+        { K.name = T.unpack $ get name seg
+        , K.desc = H.prettyHtml desc
+        , K.coord = unPolyline $ get points seg }
+    where
+        fmt n x = showFFloat (Just n) x ""
+        -- for some reason Strava Android app doesn't catch the link with
+        -- https, hence just http
+        link = "http://www.strava.com/segments/" ++ show (get Strive.id seg)
+        category = get climbCategoryDesc seg
+        elev = fmt 0 (get elevDifference seg) ++ " m"
+        dist = fmt 1 (get distance seg / 1000) ++ " km"
+        grad = fmt 1 (get avgGrade seg) ++ "%"
+        desc =
+            [ H.toHtml $ H.hotlink link [H.stringToHtml link], H.br, H.br
+            , H.bold $ H.stringToHtml "Category: ", H.stringToHtml category, H.br
+            , H.bold $ H.stringToHtml "Distance: ", H.stringToHtml dist, H.br
+            , H.bold $ H.stringToHtml "Elev. difference: ", H.stringToHtml elev, H.br
+            , H.bold $ H.stringToHtml "Avg. grade: ", H.stringToHtml grad, H.br
+            ]
 
 segsToKml segs = K.tracksToKML $ map segToTrack $ get segments segs
 

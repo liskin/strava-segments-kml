@@ -19,6 +19,7 @@ executable strava-segments-kml
                        bytestring,
                        data-default,
                        fast-logger,
+                       html == 1.0.*,
                        http-types,
                        lrucache == 1.*,
                        mtl == 2.*,
