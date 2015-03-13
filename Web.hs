@@ -9,7 +9,7 @@ import Network.HTTP.Types
 import Network.Wai
 import Network.Wai.Handler.Warp
 import Numeric
-import Strive hiding (map)
+import Strive hiding (map, error)
 import System.Environment (getArgs)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Cache.LRU.IO as C
@@ -27,7 +27,10 @@ main = do
 
 app stravaLru req respond = case (requestMethod req, pathInfo req) of
     ("GET", []) -> respond $ responseFile status200 [("Content-Type", "text/html")] "index.html" Nothing
-    ("GET", ["segments.kml"]) -> oAuth def (url ++ "segments.kml") segmentsKml (queryString req) >>= respond
+    ("GET", ["segments.kml"]) ->
+        oAuth def (url ++ "segments.kml") (segmentsKml "ride") (queryString req) >>= respond
+    ("GET", ["segments-run.kml"]) ->
+        oAuth def (url ++ "segments-run.kml") (segmentsKml "run") (queryString req) >>= respond
     ("GET", ["segmentsView.kml"]) -> segmentsViewKml stravaLru (queryString req) >>= respond
     ("GET", _) -> respond $ responseNotFound
     (_, _) -> respond $ responseNotImplemented
@@ -44,20 +47,23 @@ oAuth opts pageUrl f q =
         _ ->
             return $ responseBadReq "missing code"
 
-segmentsKml token = responseKml $ K.netLinkKML "Strava Segments" href format
+segmentsKml typ token = responseKml $ K.netLinkKML "Strava Segments" href format
     where
         href = url ++ "segmentsView.kml"
-        format = "south=[bboxSouth]&west=[bboxWest]&north=[bboxNorth]&east=[bboxEast]&token=" ++ token
+        format = "south=[bboxSouth]&west=[bboxWest]&north=[bboxNorth]" ++
+            "&east=[bboxEast]&token=" ++ token ++ "&type=" ++ typ
 
 segmentsViewKml stravaLru =
-    getParamsM ["south", "west", "north", "east", "token"] $ \[s, w, n, e, token] ->
-        fmap (responseKml . segsToKml) $ exploreBbox stravaLru (B.unpack token) (rd s, rd w, rd n, rd e)
+    getParamsM [["south"], ["west"], ["north"], ["east"], ["token"], ["type", "ride"]] $
+        \[s, w, n, e, token, typ] -> fmap (responseKml . segsToKml) $
+            exploreBbox stravaLru (B.unpack token) (rd s, rd w, rd n, rd e) (act typ)
     where
         rd = read . B.unpack
+        act t = case t of "ride" -> Riding; "run" -> Running; _ -> error "unknown activity type"
 
-exploreBbox stravaLru token bbox = do
+exploreBbox stravaLru token bbox act = do
     client <- getClient stravaLru token
-    Right segs <- exploreSegments client bbox def
+    Right segs <- exploreSegments client bbox $ set activityType act def
     return segs
 
 getClient stravaLru token = do
@@ -113,13 +119,17 @@ responseFound uri = responseBuilder status302 headers mempty
     where
         headers = [("Content-Type", "text/plain"), ("Location", uri)]
 
-getParamsM :: (Monad m) => [B.ByteString] -> ([B.ByteString] -> m Response) -> Query -> m Response
+getParamsM :: (Monad m) => [[B.ByteString]] -> ([B.ByteString] -> m Response) -> Query -> m Response
 getParamsM ps c q =
     case sequence $ map getPar ps of
         Right ps' -> c ps'
         Left err -> return $ responseBadReq err
     where
-        getPar p =
+        getPar [] = error "getPar []"
+        getPar (p:ds) =
             case lookup p q of
                 Just (Just v) -> Right v
-                _ -> Left $ "missing param: " ++ B.unpack p
+                _ -> case ds of
+                    [] -> Left $ "missing param: " ++ B.unpack p
+                    [d] -> Right d
+                    _ -> error "getPar [,,]"
