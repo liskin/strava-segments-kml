@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wall -fno-warn-missing-signatures #-}
 module KML
     ( tracksToKML
     , netLinkKML
@@ -28,9 +29,9 @@ kmlPlacemark track = unode "Placemark"
 coords cs = unlines [ show lon ++ "," ++ show lat ++ ",0" | (lat, lon) <- cs]
 
 netLinkKML :: String -> String -> String -> String
-netLinkKML name href format = showTopElement $ kmlTop [nameTag, netLinkTag]
+netLinkKML n href format = showTopElement $ kmlTop [nameTag, netLinkTag]
     where
-        nameTag = unode "name" name
+        nameTag = unode "name" n
         netLinkTag = unode "NetworkLink" [nameTag, linkTag]
         linkTag = unode "Link" [hrefTag, viewFormatTag, viewRefreshModeTag]
         hrefTag = unode "href" href

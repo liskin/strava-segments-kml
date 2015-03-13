@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wall -fno-warn-missing-signatures #-}
 module Main where
 
 import Blaze.ByteString.Builder.Char.Utf8 (fromString)
-import Control.Monad (join)
 import Control.Monad.Identity (Identity(..))
 import Data.Default (def)
 import Data.Monoid (mempty)
@@ -40,6 +40,8 @@ oAuth opts pageUrl f q =
             case res of
                 Left err -> return $ responseBadReq err
                 Right res' -> return $ f $ T.unpack $ get accessToken res'
+        _ ->
+            return $ responseBadReq "missing code"
 
 segmentsKml token = responseKml $ K.netLinkKML "Strava Segments" href format
     where
@@ -89,9 +91,9 @@ responseNotImplemented = responseBuilder status501 headers $ fromString "not imp
     where
         headers = [("Content-Type", "text/plain")]
 
-responseFound url = responseBuilder status302 headers mempty
+responseFound uri = responseBuilder status302 headers mempty
     where
-        headers = [("Content-Type", "text/plain"), ("Location", url)]
+        headers = [("Content-Type", "text/plain"), ("Location", uri)]
 
 getParams :: [B.ByteString] -> ([B.ByteString] -> Response) -> Query -> Response
 getParams ps c q = runIdentity $ getParamsM ps (Identity . c) q
