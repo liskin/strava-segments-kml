@@ -14,6 +14,7 @@ import System.Environment (getArgs)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Cache.LRU.IO as C
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified KML as K
 import qualified Text.Html as H
 
@@ -42,7 +43,7 @@ oAuth opts pageUrl f q =
         Just (Just code) -> do
             res <- exchangeToken clientId clientSecret (B.unpack code)
             case res of
-                Left err -> return $ responseBadReq err
+                Left (_, err) -> return $ responseBadReq err
                 Right res' -> return $ f $ T.unpack $ get accessToken res'
         _ ->
             return $ responseBadReq "missing code"
@@ -56,7 +57,7 @@ segmentsKml typ token = responseKml $ K.netLinkKML "Strava Segments" href format
 segmentsViewKml stravaLru =
     getParamsM [["south"], ["west"], ["north"], ["east"], ["token"], ["type", "ride"]] $
         \[s, w, n, e, token, typ] -> fmap (responseKml . segsToKml) $
-            exploreBbox stravaLru (B.unpack token) (rd s, rd w, rd n, rd e) (act typ)
+            exploreBbox stravaLru (Just $ T.decodeUtf8 token) (rd s, rd w, rd n, rd e) (act typ)
     where
         rd = read . B.unpack
         act t = case t of "ride" -> Riding; "run" -> Running; _ -> error "unknown activity type"
