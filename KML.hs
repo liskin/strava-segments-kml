@@ -6,11 +6,12 @@ module KML
     ) where
 
 import Text.XML.Light
+import Strive.Aliases (Latitude, Longitude)
 
 data Track = Track
     { name :: String
     , desc :: String
-    , coord :: [(Double, Double)]
+    , coord :: [(Latitude, Longitude)]
     } deriving Show
 
 tracksToKML :: [Track] -> String
