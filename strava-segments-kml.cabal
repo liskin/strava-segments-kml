@@ -23,7 +23,7 @@ executable strava-segments-kml
                        http-types,
                        lrucache == 1.*,
                        mtl == 2.*,
-                       strive == 1.0.*,
+                       strive == 2.2.*,
                        text,
                        xml,
                        wai == 3.*,
