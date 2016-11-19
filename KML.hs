@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wall -fno-warn-missing-signatures #-}
 module KML
     ( tracksToKML
     , netLinkKML
@@ -17,16 +16,19 @@ data Track = Track
 tracksToKML :: [Track] -> String
 tracksToKML = showTopElement . kmlTop . map kmlPlacemark
 
+kmlTop :: Node t => t -> Element
 kmlTop content = unode "kml" (xmlns, unode "Document" content)
     where
         xmlns = Attr (unqual "xmlns") "http://www.opengis.net/kml/2.2"
 
+kmlPlacemark :: Track -> Element
 kmlPlacemark track = unode "Placemark"
     [ unode "name" $ name track
     , unode "description" $ desc track
     , unode "LineString" $ unode "coordinates" $ coords $ coord track
     ]
 
+coords :: [(Longitude, Latitude)] -> String
 coords cs = unlines [ show lon ++ "," ++ show lat ++ ",0" | (lat, lon) <- cs]
 
 netLinkKML :: String -> String -> String -> String

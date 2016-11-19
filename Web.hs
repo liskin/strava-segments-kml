@@ -1,11 +1,10 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# OPTIONS_GHC -Wall -fno-warn-missing-signatures #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import Blaze.ByteString.Builder.Char.Utf8 (fromString)
 import Data.Default (def)
-import Data.Monoid (mempty)
 import Network.HTTP.Types
 import Network.Wai
 import Network.Wai.Handler.Warp
@@ -27,6 +26,9 @@ main = do
     stravaLru <- C.newAtomicLRU (Just 100)
     run (read port) $ logger $ app stravaLru
 
+type LRU = C.AtomicLRU (Maybe T.Text) Client
+
+app :: LRU -> Request -> (Response -> IO b) -> IO b
 app stravaLru req respond = case (requestMethod req, pathInfo req) of
     ("GET", []) -> respond $ responseFile status200 [("Content-Type", "text/html")] "index.html" Nothing
     ("GET", ["segments.kml"]) ->
@@ -37,6 +39,12 @@ app stravaLru req respond = case (requestMethod req, pathInfo req) of
     ("GET", _) -> respond $ responseNotFound
     (_, _) -> respond $ responseNotImplemented
 
+oAuth
+    :: BuildAuthorizeUrlOptions
+    -> RedirectUri
+    -> (String -> Response)
+    -> [(B.ByteString, Maybe B.ByteString)]
+    -> IO Response
 oAuth opts pageUrl f q =
     case lookup "code" q of
         Nothing ->
@@ -49,12 +57,14 @@ oAuth opts pageUrl f q =
         _ ->
             return $ responseBadReq "missing code"
 
+segmentsKml :: String -> String -> Response
 segmentsKml typ token = responseKml $ K.netLinkKML "Strava Segments" href format
     where
         href = url ++ "segmentsView.kml"
         format = "south=[bboxSouth]&west=[bboxWest]&north=[bboxNorth]" ++
             "&east=[bboxEast]&token=" ++ token ++ "&type=" ++ typ
 
+segmentsViewKml :: LRU -> Query -> IO Response
 segmentsViewKml stravaLru =
     getParamsM [["south"], ["west"], ["north"], ["east"], ["token"], ["type", "ride"]] $
         \[s, w, n, e, token, typ] -> fmap (responseKml . segsToKml) $
@@ -63,11 +73,18 @@ segmentsViewKml stravaLru =
         rd = read . B.unpack
         act t = case t of "ride" -> Riding; "run" -> Running; _ -> error "unknown activity type"
 
+exploreBbox
+    :: LRU
+    -> Maybe T.Text
+    -> (Latitude, Longitude, Latitude, Longitude)
+    -> SegmentActivityType
+    -> IO SegmentExplorerResponse
 exploreBbox stravaLru token bbox act = do
     client <- getClient stravaLru token
     Right segs <- exploreSegments client bbox $ set activityType act def
     return segs
 
+getClient :: LRU -> Maybe T.Text -> IO Client
 getClient stravaLru token = do
     v <- C.lookup token stravaLru
     case v of
@@ -77,6 +94,7 @@ getClient stravaLru token = do
             C.insert token client stravaLru
             return client
 
+segToTrack :: SegmentExplorerEntry -> K.Track
 segToTrack seg =
     K.Track
         { K.name = T.unpack $ get name seg
@@ -99,24 +117,30 @@ segToTrack seg =
             , H.bold $ H.stringToHtml "Avg. grade: ", H.stringToHtml grad, H.br
             ]
 
+segsToKml :: SegmentExplorerResponse -> String
 segsToKml segs = K.tracksToKML $ map segToTrack $ get segments segs
 
+responseKml :: String -> Response
 responseKml = responseBuilder status200 headers . fromString
     where
         headers = [("Content-Type", "application/vnd.google-earth.kml+xml")]
 
+responseBadReq :: String -> Response
 responseBadReq s = responseBuilder status400 headers $ fromString s
     where
         headers = [("Content-Type", "text/plain")]
 
+responseNotFound :: Response
 responseNotFound = responseBuilder status404 headers $ fromString "not found"
     where
         headers = [("Content-Type", "text/plain")]
 
+responseNotImplemented :: Response
 responseNotImplemented = responseBuilder status501 headers $ fromString "not implemented"
     where
         headers = [("Content-Type", "text/plain")]
 
+responseFound :: B.ByteString -> Response
 responseFound uri = responseBuilder status302 headers mempty
     where
         headers = [("Content-Type", "text/plain"), ("Location", uri)]
