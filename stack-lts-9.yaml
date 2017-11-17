@@ -1,0 +1,5 @@
+resolver: lts-9.2
+flags: {}
+packages: ['.']
+extra-deps:
+    - strive-4.0.1
