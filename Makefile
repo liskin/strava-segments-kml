@@ -1,2 +1,11 @@
+LTS=7
+STACK=stack --stack-yaml stack-lts-$(LTS).yaml
+
 all:
-	stack build --copy-bins --local-bin-path "$(shell pwd)/bin"
+	$(STACK) build --copy-bins --local-bin-path "$(shell pwd)/bin"
+
+ghci:
+	$(STACK) ghci
+
+ghcid:
+	ghcid -c "$(STACK) ghci"
